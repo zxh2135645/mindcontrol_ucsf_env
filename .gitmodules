@@ -1,0 +1,6 @@
+[submodule "development/mindcontrol"]
+	path = development/mindcontrol
+	url = git@github.com:akeshavan/mindcontrol.git
+[submodule "production/mindcontrol"]
+	path = production/mindcontrol
+	url = git@github.com:akeshavan/mindcontrol.git
