@@ -101,6 +101,8 @@ def create_alignment_entry(mse, outdir):
             entry["check_masks"] = paths
             entry["name"] = paths[0].split("/")[-1].split(".nii.gz")[0]
             entry["entry_type"] = "align"
+            rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
+            entry["check_masks"] += rois
             return entry
 
 
