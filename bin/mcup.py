@@ -55,6 +55,16 @@ def relative_path(x, mse):
     return join(mse, foo)
 
 
+def get_rois(mse, entry_type, name, outdir):
+    from os.path import join
+    from glob import glob
+    mindcontrol_dir = join(outdir, mse, "mindcontrol", name, entry_type,"rois")
+    rois = [relative_path(q, mse) for q in glob(join(mindcontrol_dir, "*.nii.gz"))]
+    print(join(mindcontrol_dir, "*.nii.gz"))
+    
+    return rois
+
+
 # In[38]:
 
 def create_mindboggle_entry(mse, outdir):
@@ -73,6 +83,8 @@ def create_mindboggle_entry(mse, outdir):
                                     relative_path(fs[i], mse)]
             entry["metrics"] = status["metrics"][i]
             entry["entry_type"] = "mindboggle"
+            rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
+            entry["check_masks"] += rois
             entries.append(entry)
         return entries
 
