@@ -231,7 +231,7 @@ pbr_folder_mapper = {
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-e', '--env', dest="env")
-    parser.add_argument("-s",action='append', dest="subjects")
+    parser.add_argument("-s",  nargs="+", dest="subjects")
     config = load_json(os.path.join(os.path.split(__file__)[0], "config.json"))
     #print(config)
     #parser.add_argument('-p',"--meteor_port", dest='meteor_port')
@@ -239,7 +239,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.env in ["development", "production"]:
         env = args.env
-        for mse in args.subjects:
+        if len(args.subjects) > 0:
+            if args.subjects[0].endswith(".txt"):
+                import numpy as np
+                subjects = np.genfromtxt(args.subjects[0], dtype=str)
+            else:
+                subjects = args.subjects
+        for mse in subjects:
             meteor_port = config[env]["meteor_port"]
             entries = get_all_entries(mse, outdir)
             update_db_entries(meteor_port, entries)

@@ -60,6 +60,29 @@ mcup.py -e development -s mse1 mse2 mse3
 
 ```
 
+or
 
+```
 
+mcup.py -e development -s list_of_mses.txt
+
+```
+
+where the list_of_mses.txt file is formatted like:
+
+```
+mse1
+mse2
+mse3
+```
+
+## mc_roi.py
+
+mc_roi.py converts the papaya coordinates saved in the database to a nifti-gz volume, and then adds that volume as a loadable image in mindcontrol. To use, run
+
+```
+mc_roi.py -e development -s mse# 
+mc_roi.py -e development -s mse_list.txt 
+mc_roi.py -e development -s mse# --entry_type freesurfer antsCT
+```
 

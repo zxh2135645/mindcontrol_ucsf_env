@@ -1,0 +1,117 @@
+import pymongo
+import nibabel as nib
+from pbr.config import config as cc
+from os.path import join, exists, split
+from dipy.tracking import utils
+import argparse
+from nipype.utils.filemanip import load_json
+import os
+import numpy as np
+
+
+def get_collection(port=3001):
+    from pymongo import MongoClient
+    client = MongoClient("localhost", port)
+    db =  client.meteor
+    collection = db.subjects
+    return collection, client
+    
+def get_papaya_aff(img):
+    vs = img.header.get_zooms()
+    aff = img.get_affine()
+    ort = nib.orientations.io_orientation(aff)
+    papaya_aff = np.zeros((4, 4))
+    for i, line in enumerate(ort):
+        papaya_aff[line[0],i] = vs[i]*line[1]
+    papaya_aff[:, 3] = aff[:, 3]
+    return papaya_aff
+    
+
+def convert_to_volume(drawing, papaya_aff, aff, img):
+
+    topoints = lambda x : np.array([[m["x"], m["y"], m["z"]] for m in x["world_coor"]])
+    points = list(map(topoints, drawing))
+
+    mask2 = utils.density_map(points, img.shape, affine=papaya_aff)
+    points_nifti_space = list(utils.move_streamlines(points, aff, input_space=papaya_aff))
+    mask1 = utils.density_map(points_nifti_space, img.shape, affine=aff)
+
+    print((mask1 == mask2).all())
+    # img1 = nib.Nifti1Image(mask1)
+    print(mask1.sum(), mask2.sum())
+    
+    return mask1, points_nifti_space
+    
+def create_volume(output):
+    from pbr.config import config as cc
+    img = nib.load(join(cc["output_directory"],output["check_masks"][0]))
+    aff = img.get_affine() #affine()
+    papaya_affine = get_papaya_aff(img)
+    data = np.zeros(img.shape)
+    outputfiles = []
+    mse = output["subject_id"]
+    sequence = output["name"]
+    for contour in output["contours"]:
+        drawing = contour["contours"]
+        name = contour['name'].replace(" ", "_")
+        author = contour["checkedBy"]
+    
+        mask, points_nifti_space = convert_to_volume(drawing, papaya_affine, aff, img)
+        outfilepath = join(mse, "mindcontrol/{}/{}/rois".format(sequence, output["entry_type"]))
+        if not exists(join(cc["output_directory"], outfilepath)):
+            os.makedirs(join(cc["output_directory"],outfilepath))
+            print(join(cc["output_directory"], outfilepath), "created")
+        outfilename = join(outfilepath, "{}-{}.nii.gz".format(name,author))
+        nib.Nifti1Image(mask.astype(np.float32), affine=aff).to_filename(join(cc["output_directory"], outfilename))
+        
+        print("wrote", join(cc["output_directory"], outfilename))
+        outputfiles.append(outfilename)
+    return outputfiles
+        
+
+def get_all_contours(mse, meteor_port, entry_types = None):
+    coll, cli = get_collection(meteor_port+1)
+    finder = {"subject_id": mse}
+    if entry_types is not None:
+        finder["entry_type"] = {"$in": entry_types}
+    entries = coll.find(finder)
+    saved = []
+    for entry in entries: 
+        if "name" in entry.keys(): #i.e. there needs to be a sequence associated w/ the ROI
+            name = entry["name"]
+            et = entry["entry_type"]
+            sid = entry["subject_id"]
+            if "contours" in entry.keys():
+                print("found drawings for", name, et, sid)
+                outputs = create_volume(entry)
+                if outputs:
+                    for o in outputs:
+                        if not o in entry["check_masks"]:
+                            entry["check_masks"].append(o)
+                    coll.update_one({"name": name, "subject_id":sid, "entry_type": et},
+                                    {"$set":{"check_masks": entry["check_masks"]}})
+            
+        
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-e', '--env', dest="env")
+    parser.add_argument("-s",action='append', dest="subjects")
+    parser.add_argument("--entry_type", dest="entry_types", nargs="+")
+    config = load_json(os.path.join(os.path.split(__file__)[0], "config.json"))
+    args = parser.parse_args()
+    if args.env in ["development", "production"]:
+        env = args.env
+        if len(args.subjects) > 0:
+            if args.subjects[0].endswith(".txt"):
+                import numpy as np
+                subjects = np.genfromtxt(args.subjects[0], dtype=str)
+            else:
+                subjects = args.subjects
+        for mse in subjects:
+            meteor_port = config[env]["meteor_port"]
+            get_all_contours(mse, meteor_port, args.entry_types)
+            
+    else:
+        raise Exception("Choose the database you want to append to w/ -e production or -e development")
+
+    
