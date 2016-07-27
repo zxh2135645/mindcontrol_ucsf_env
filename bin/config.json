@@ -1,0 +1,3 @@
+{"development": {"meteor_port": 4040, "static_port": 3002, "backup_dir": "/data/henry6/mindcontrol_ucsf_env/backups/development"},
+ "production": {"meteor_port": 5050, "static_port": 3002, "backup_dir": "/data/henry6/mindcontrol_ucsf_env/backups/production/"}
+}
