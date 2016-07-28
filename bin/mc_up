@@ -79,8 +79,8 @@ def create_mindboggle_entry(mse, outdir):
             entry = deepcopy(init)
             entry["name"] = n
             entry["check_masks"] = [relative_path(get_t1(n, mse, outdir), mse),
-                                    relative_path(ants[i], mse),
-                                    relative_path(fs[i], mse)]
+                                    relative_path(fs[i], mse),
+                                    relative_path(ants[i], mse)]
             entry["metrics"] = status["metrics"][i]
             entry["entry_type"] = "mindboggle"
             rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
@@ -201,8 +201,9 @@ def get_all_entries(mse, outdir):
     for fol in folders:
         if fol in pbr_folder_mapper.keys():
             func= pbr_folder_mapper[fol]
+            #print(fol, func)
             to_add = func(mse, outdir)
-            if to_add:
+            if isinstance(to_add, list):
                 entries += to_add
                 status_complete.append(fol)
                 
@@ -262,6 +263,8 @@ if __name__ == '__main__':
         for mse in subjects:
             meteor_port = config[env]["meteor_port"]
             entries = get_all_entries(mse, outdir)
+            #for i, ent in enumerate(entries):
+            #    #print(i, isinstance(ent, str))
             update_db_entries(meteor_port, entries)
     else:
         raise Exception("Choose the database you want to append to w/ -e production or -e development")

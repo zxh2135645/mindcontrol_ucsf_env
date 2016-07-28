@@ -86,3 +86,7 @@ mc_roi -e development -s mse_list.txt
 mc_roi -e development -s mse# --entry_type freesurfer antsCT
 ```
 
+## cohort_updater.py
+
+this script takes in a list of msid's and queries spaceman for their corresponding mse#s and dates. it updates an mse watchlist for cron to update entries on.
+
