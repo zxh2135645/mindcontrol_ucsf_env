@@ -95,7 +95,10 @@ def create_alignment_entry(mse, outdir):
     status = get_status_file("alignment", mse, outdir)
     if status is not None:
         if "t1_files" in list(status.keys()):
-            paths = [relative_path(s, mse) for s in status["t1_files"]]             + [relative_path(s, mse) for s in status["t2_files"]]             + [relative_path(s, mse) for s in status["flair_files"]]             + [relative_path(s, mse) for s in status["gad_files"]] 
+            paths = [relative_path(s, mse) for s in status["t1_files"]]
+            paths += [relative_path(s, mse) for s in status["t2_files"]]
+            paths += [relative_path(s, mse) for s in status["flair_files"]]
+            paths += [relative_path(s, mse) for s in status["gad_files"]]
             entry = {}
             entry["subject_id"] = mse
             entry["check_masks"] = paths
@@ -103,7 +106,7 @@ def create_alignment_entry(mse, outdir):
             entry["entry_type"] = "align"
             rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
             entry["check_masks"] += rois
-            return entry
+            return [entry]
 
 
 # In[63]:
@@ -154,7 +157,16 @@ def create_freesurfer_entry(mse, outdir):
             return entries
 
 
-# In[10]:
+def create_dura_prep_entry(mse, outdir):
+    status = get_status_file("dura", mse, outdir)
+    if status is not None:
+        t1_names = [q.split("/")[-2] for q in status["reoriented_t1s"]]
+        entries = [{"check_masks": [relative_path(q, mse),
+                                    relative_path(status["brain_mask"][i], mse)],
+                       "name": t1_names[i],
+                       'entry_type': "freesurfer",
+                        "subject_id": mse} for i, q in enumerate(status["reoriented_t1s"])]
+        return entries
 
 def get_mindboggle_info(mse, outdir, all_entries):
     status = get_status_file("mindboggle", mse, outdir)
@@ -201,15 +213,13 @@ def get_all_entries(mse, outdir):
     for fol in folders:
         if fol in pbr_folder_mapper.keys():
             func= pbr_folder_mapper[fol]
-            #print(fol, func)
             to_add = func(mse, outdir)
             if isinstance(to_add, list):
                 entries += to_add
                 status_complete.append(fol)
-                
+
     entries.append({"subject_id": mse, "entry_type": 'demographic', "status": status_complete})
     return entries
-    
 
 
 # In[57]:
@@ -240,7 +250,8 @@ pbr_folder_mapper = {
           "masks": create_freesurfer_entry, 
           "antsCT": create_antsCT_entry,
           "mindboggle": create_mindboggle_entry,
-          "alignment": create_alignment_entry}
+          "alignment": create_alignment_entry,
+          "dura": create_dura_prep_entry}
 
 
 if __name__ == '__main__':

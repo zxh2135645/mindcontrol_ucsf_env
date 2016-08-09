@@ -9,6 +9,7 @@ import pandas as pd
 from subprocess import Popen, PIPE
 import pandas as pd
 import argparse
+from os.path import join
 
 get_numerical_msid = lambda x: str(int(x[-4:]))
 
@@ -45,9 +46,9 @@ def get_all_mse(msid):
     tmp["msid"] = msid
     return tmp
     
-def filter_files(desc,nii_type, heuristic):
+def filter_files(descrip,nii_type, heuristic):
     output = []
-    for i, desc in enumerate(desc):
+    for i, desc in enumerate(descrip):
         if desc in list(heuristic.keys()):
             if heuristic[desc] == nii_type:
                  output.append(desc)
@@ -59,15 +60,18 @@ def get_modality(mse, nii_type="T1"):
     cmd = ["ms_dcm_exam_info", "-t", num]
     proc = Popen(cmd, stdout=PIPE)
     lines = [description_renamer(" ".join(l.decode("utf-8").split()[1:-1])) for l in proc.stdout.readlines()[8:]]
-    files = filter_files(lines, "T1", heuristic)
-    output["nii"] = files
+    if nii_type:
+        files = filter_files(lines, nii_type, heuristic)
+        output["nii"] = files
+    else:
+        output["nii"] = lines
     output["mse"] = mse
     return output
 
 def get_summary_counts(df):
     counts = df.groupby("msid").apply(lambda x: x.count()[["mse"]])
     counts["times"] = df.groupby("msid").apply(get_diff)
-    return counts    
+    return counts
     
 def get_all_mses_and_dates(msids, modality="T1", to_ignore = []):
     df_final = pd.DataFrame()
@@ -99,10 +103,16 @@ def get_collection(port=3001):
 def update_demographics(cohort_df, study_tag, meteor_port):
     """This will just add dates and a study tag"""
     coll, _ = get_collection(meteor_port + 1)
-    for row in cohort_df.iterrows:
+    for i, row in cohort_df.iterrows():
         mse = row.mse
         finder = {"subject_id": mse, "entry_type": "demographic"}
         res = coll.find_one(finder)
+        if res is None:
+            finder["Study Tag"] = []
+            coll.insert_one(finder)
+            res = coll.find_one(finder)
+        if not "Study Tag" in res.keys():
+            res["Study Tag"] = []
         if not isinstance(res["Study Tag"], list):
             res["Study Tag"] = [res["Study Tag"]]
         if not study_tag in res["Study Tag"]:
@@ -115,15 +125,21 @@ def update_demographics(cohort_df, study_tag, meteor_port):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-e', '--env', dest="env")
-    parser.add_argument("-s",  nargs="+", dest="subjects")
+    parser.add_argument("-c",  nargs="+", dest="cohort_names")
     config = load_json(os.path.join(os.path.split(__file__)[0], "config.json"))
     #print(config)
     #parser.add_argument('-p',"--meteor_port", dest='meteor_port')
     #parser.add_argument("-s", "--static_port", dest="static_port")
     args = parser.parse_args()
+    do_cohorts = args.cohort_names
+    base_dir = os.path.split(__file__)[0]
     if args.env in ["development", "production"]:
         auto_cohort = load_json(os.path.join(os.path.split(__file__)[0], "auto_cohorts.json"))
         for cohort in auto_cohort:
+            if do_cohorts is not None:
+                if not cohort["name"] in do_cohorts:
+                    print("skipping", cohort["name"])
+                    continue
             msids = np.genfromtxt(cohort["msid_path"],dtype=str).tolist()
             df = get_all_mses_and_dates(msids, cohort["modality"], cohort["to_ignore"])
 
@@ -131,12 +147,12 @@ if __name__ == "__main__":
                 counts = get_summary_counts(df)
                 cohort_subjects = get_cohort(counts, cohort["num_timepoints"], cohort['num_years']).index.values
                 cohort_df = get_exams(df, cohort_subjects)
-                cohort_df.to_csv("../watchlists/demographics/{}.csv".format(cohort["name"]))
-                get_pbr_list(cohort_df, "../watchlists/mse/{}.txt".format(cohort["name"]))
+                cohort_df.to_csv(join(base_dir,"../watchlists/demographics/{}.csv".format(cohort["name"])))
+                get_pbr_list(cohort_df, join(base_dir, "../watchlists/mse/{}.txt".format(cohort["name"])))
                 update_demographics(cohort_df, cohort["name"], config[args.env]["meteor_port"])
             else:
-                df.mse.to_csv("../watchlists/demographics/{}.csv", index=None, header=None)
-                get_pbr_list(df, "../watchlists/mse/{}.txt".format(cohort["name"]))
+                df.to_csv(join(base_dir, "../watchlists/demographics/{}.csv".format(cohort["name"])))
+                get_pbr_list(df, join(base_dir, "../watchlists/mse/{}.txt".format(cohort["name"])))
                 update_demographics(df, cohort["name"], config[args.env]["meteor_port"])
 
     else:

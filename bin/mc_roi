@@ -71,6 +71,59 @@ def create_volume(output):
     return outputfiles
         
 
+def convert_to_real_world(drawing, papaya_aff, aff, img):
+
+    topoints = lambda x : np.array([[m["world_coor"]["x"],
+                                     m["world_coor"]["y"],
+                                     m["world_coor"]["z"]] for m in x])
+    points_orig = topoints(drawing)
+    #print(points_orig)
+    points_nifti_space = list(utils.move_streamlines(points_orig, aff, input_space=papaya_aff))
+    mask1 = utils.density_map(points_nifti_space, img.shape, affine=aff)
+    return mask1, points_nifti_space
+
+def get_all_seeds(mse, meteor_port, entry_types=None):
+    import pandas as pd
+    coll, cli = get_collection(meteor_port+1)
+    finder = {"subject_id": mse}
+    if entry_types is not None:
+        finder["entry_type"] = {"$in": entry_types}
+    entries = coll.find(finder)
+    saved = []
+    for entry in entries:
+        if "name" in entry.keys(): #i.e. there needs to be a sequence associated w/ the ROI
+            name = entry["name"]
+            et = entry["entry_type"]
+            sid = entry["subject_id"]
+            if "loggedPoints" in entry.keys():
+                img = nib.load(join(cc["output_directory"],entry["check_masks"][0]))
+                aff = img.get_affine() #affine()
+                papaya_affine = get_papaya_aff(img)
+                mask1, points_nii_space = convert_to_real_world(entry["loggedPoints"], papaya_affine,
+                                                                aff, img)
+                df = pd.DataFrame(points_nii_space, columns=["x","y","z"])
+                annot = []
+                authors = []
+                for e in entry["loggedPoints"]:
+                    authors.append(e["checkedBy"])
+                    if "note" in entry.keys():
+                        annot.append(entry["note"])
+                    else:
+                        annot.append(None)
+                df["annotation"] = annot
+                df["author"] = authors
+                mse = entry["subject_id"]
+                sequence = entry["name"]
+                outfilepath = join(mse, "mindcontrol/{}/{}/rois".format(sequence, entry["entry_type"]))
+                if not exists(join(cc["output_directory"], outfilepath)):
+                    os.makedirs(join(cc["output_directory"],outfilepath))
+                    print(join(cc["output_directory"], outfilepath), "created")
+                author = "-".join(set(authors))
+                outfilename = join(outfilepath, "{}-{}.csv".format(name,author))
+                df.to_csv(join(cc["output_directory"],outfilename))
+                print("wrote", join(cc["output_directory"],outfilename))
+
+
 def get_all_contours(mse, meteor_port, entry_types = None):
     coll, cli = get_collection(meteor_port+1)
     finder = {"subject_id": mse}
@@ -112,6 +165,7 @@ if __name__ == '__main__':
         for mse in subjects:
             meteor_port = config[env]["meteor_port"]
             get_all_contours(mse, meteor_port, args.entry_types)
+            get_all_seeds(mse, meteor_port, args.entry_types)
             
     else:
         raise Exception("Choose the database you want to append to w/ -e production or -e development")
