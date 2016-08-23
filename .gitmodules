@@ -4,3 +4,6 @@
 [submodule "production/mindcontrol"]
 	path = production/mindcontrol
 	url = git@github.com:akeshavan/mindcontrol.git
+[submodule "test_env/mindcontrol"]
+	path = test_env/mindcontrol
+	url = https://github.com/akeshavan/mindcontrol

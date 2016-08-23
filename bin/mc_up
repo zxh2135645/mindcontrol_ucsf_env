@@ -161,11 +161,16 @@ def create_dura_prep_entry(mse, outdir):
     status = get_status_file("dura", mse, outdir)
     if status is not None:
         t1_names = [q.split("/")[-2] for q in status["reoriented_t1s"]]
+        print("t1 names is", t1_names)
         entries = [{"check_masks": [relative_path(q, mse),
                                     relative_path(status["brain_mask"][i], mse)],
                        "name": t1_names[i],
-                       'entry_type': "freesurfer",
+                       'entry_type': "dura",
                         "subject_id": mse} for i, q in enumerate(status["reoriented_t1s"])]
+        for entry in entries:
+            rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
+            entry["check_masks"] += rois
+        print(entries)
         return entries
 
 def get_mindboggle_info(mse, outdir, all_entries):

@@ -60,9 +60,10 @@ def kill_servers(meteor_port, static_port):
         print("terminated", pid1, "for meteor")
 
     if pid2:
-        p = psutil.Process(pid2)
-        p.terminate()
-        print("terminated", pid2, "for static server")
+        #p = psutil.Process(pid2)
+        #p.terminate()
+        #print("terminated", pid2, "for static server")
+        pass
     if pid3:
         p = psutil.Process(pid3)
         p.terminate()
