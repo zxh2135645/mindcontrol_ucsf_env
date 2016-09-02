@@ -73,7 +73,7 @@ def get_summary_counts(df):
     counts["times"] = df.groupby("msid").apply(get_diff)
     return counts
     
-def get_all_mses_and_dates(msids, modality="T1", to_ignore = []):
+def get_all_mses_and_dates(msids, modality="T1", to_ignore = [], do_modality_reduction=True):
     df_final = pd.DataFrame()
     for m in msids:
         mse = get_all_mse(m)
@@ -84,8 +84,12 @@ def get_all_mses_and_dates(msids, modality="T1", to_ignore = []):
         foo = pd.merge(mse, tmp, left_on=["mse"], right_on=["mse"], how="outer")
         df_final = df_final.append(foo, ignore_index=True)
         print("msid", m, "complete")
-    df = reduce_df(df_final, to_ignore)
+    if do_modality_reduction:
+        df = reduce_df(df_final, to_ignore)
+    else:
+        df = df_final
     return df
+  
     
 def get_pbr_list(cohort, filename):
     mse = list(set(cohort.mse))
@@ -141,7 +145,7 @@ if __name__ == "__main__":
                     print("skipping", cohort["name"])
                     continue
             msids = np.genfromtxt(cohort["msid_path"],dtype=str).tolist()
-            df = get_all_mses_and_dates(msids, cohort["modality"], cohort["to_ignore"])
+            df = get_all_mses_and_dates(msids, cohort["modality"], cohort["to_ignore"], cohort["modality_reduction"])
 
             if cohort["reduction"] == "long":
                 counts = get_summary_counts(df)

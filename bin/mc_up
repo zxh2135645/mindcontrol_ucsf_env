@@ -27,7 +27,12 @@ def get_status_file(pipeline, mse, outdir):
     if not exists(folder):
         #print("file not found", mse)
         return None
-    status = load_json(folder)
+    try:
+        status = load_json(folder)
+    except:
+        print("error with status {} {}".format(pipeline, mse))
+        return None
+
 
     return status
 
