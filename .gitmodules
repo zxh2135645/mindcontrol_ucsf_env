@@ -7,3 +7,6 @@
 [submodule "test_env/mindcontrol"]
 	path = test_env/mindcontrol
 	url = https://github.com/akeshavan/mindcontrol
+[submodule "brainbrowser-minimal-example"]
+	path = brainbrowser-minimal-example
+	url = https://github.com/akeshavan/brainbrowser-minimal-example

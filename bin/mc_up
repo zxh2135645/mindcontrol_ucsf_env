@@ -86,6 +86,10 @@ def create_mindboggle_entry(mse, outdir):
             entry["check_masks"] = [relative_path(get_t1(n, mse, outdir), mse),
                                     relative_path(fs[i], mse),
                                     relative_path(ants[i], mse)]
+            entry["surfaces"] = [{"name": n,
+                                  "vtk": relative_path(status["{}_freesurfer_curvature".format(n)][i], mse),
+                                  "csv": relative_path(status["{}_vertices".format(n)][i], mse)}
+                                 for n in ["left", "right"]]
             entry["metrics"] = status["metrics"][i]
             entry["entry_type"] = "mindboggle"
             rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
@@ -178,6 +182,31 @@ def create_dura_prep_entry(mse, outdir):
         print(entries)
         return entries
 
+
+def create_lst_entry(mse, outdir):
+    status = get_status_file("lst", mse, outdir)
+    if status is not None:
+        t1_names = [q.split("/")[-1].split("ples_lpa_m")[-1].split("_index.nii")[0] for q in status["lpa_index"]]
+        print("t1 names is", t1_names)
+        nii_path = os.path.join(mse,"alignment")
+        entries = [{"check_masks": [os.path.join(nii_path, t1_names[i]+".nii.gz"),
+                                    relative_path(q, mse)
+                                    ],
+                       "name": t1_names[i],
+                       'entry_type': "lst",
+                       "metrics": status["lpa_metrics"][i],
+                        "subject_id": mse} for i, q in enumerate(status["lpa_index"])]
+        
+        for i, entry in enumerate(entries):
+            name = entry["name"]
+            entry["check_masks"] += [relative_path(q, mse) for q in status["lga_index"] if name in q]
+        #    rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
+        #    entry["check_masks"] += rois
+        #print(entries)
+        
+        return entries
+
+
 def get_mindboggle_info(mse, outdir, all_entries):
     status = get_status_file("mindboggle", mse, outdir)
     if status is not None:
@@ -261,7 +290,8 @@ pbr_folder_mapper = {
           "antsCT": create_antsCT_entry,
           "mindboggle": create_mindboggle_entry,
           "alignment": create_alignment_entry,
-          "dura": create_dura_prep_entry}
+          "dura": create_dura_prep_entry,
+          "lst": create_lst_entry}
 
 
 if __name__ == '__main__':
