@@ -207,6 +207,21 @@ def create_lst_entry(mse, outdir):
         return entries
 
 
+def create_diffsolo_entry(mse, outdir):
+    status = get_status_file("diffsolo", mse, outdir)
+    if status is not None:
+        t1_names = [q.split("/")[-2] for q in status["fa"]]
+
+        entries = [{"check_masks": [relative_path(q, mse),
+                                    relative_path(status["apm"][i], mse)],
+                       "name": t1_names[i],
+                       'entry_type': "diffsolo",
+                       #"metrics": status["lpa_metrics"][i],
+                        "subject_id": mse} for i, q in enumerate(status["fa"])]
+
+        return entries
+
+
 def get_mindboggle_info(mse, outdir, all_entries):
     status = get_status_file("mindboggle", mse, outdir)
     if status is not None:
@@ -252,13 +267,57 @@ def get_all_entries(mse, outdir):
     for fol in folders:
         if fol in pbr_folder_mapper.keys():
             func= pbr_folder_mapper[fol]
-            to_add = func(mse, outdir)
-            if isinstance(to_add, list):
-                entries += to_add
-                status_complete.append(fol)
+            try:
+                to_add = func(mse, outdir)
+            
+                if isinstance(to_add, list):
+                    entries += to_add
+                    status_complete.append(fol)
+            except:
+                print("SOMETHING WENT WRONG WITH", mse)
 
     entries.append({"subject_id": mse, "entry_type": 'demographic', "status": status_complete})
     return entries
+
+def get_all_group_entries(msid, outdir):
+    """
+    Note: This doesn't update demographics, only PBR outputs
+    """
+    folders = [split(q)[1] for q in glob(join(outdir, msid, "*"))]
+    print(folders)
+    entries = []
+    status_complete = []
+    for fol in folders:
+        if fol in keg_folder_mapper.keys():
+            func= keg_folder_mapper[fol]
+            try:
+                to_add = func(msid, outdir)
+
+                if isinstance(to_add, list):
+                    entries += to_add
+                    status_complete.append(fol)
+            except:
+                print("SOMETHING WENT WRONG WITH", msid)
+
+    #entries.append({"msid": msid, "entry_type": 'demographic', "status": status_complete})
+
+    return entries
+
+
+def create_diff_align_entry(msid, outdir):
+    status = get_status_file("diff_align", msid, outdir)
+    if status is not None:
+        get_mse = lambda x: x.split("/")[-1].split("-")[1]
+        imgs = status["post_APM"] + status["thrP_sub_tfce_APM"] +status["pre_APM"]\
+                +status["thrP_sub_tfce_B0"] + status["thrP_sub_tfce_MD"] \
+               + status["sub_tfce_MD"] + status["sub_tfce_B0"]
+        entry = {"msid": msid,
+                 "subject_id": status["mseIDs"][1],
+                 "entry_type": "diff_long",
+                 "check_masks": [relative_path(x,msid) for x in imgs],
+                 "name": "{}_{}".format(*status["mseIDs"])}
+        print(entry)
+        return [entry]
 
 
 # In[57]:
@@ -291,31 +350,47 @@ pbr_folder_mapper = {
           "mindboggle": create_mindboggle_entry,
           "alignment": create_alignment_entry,
           "dura": create_dura_prep_entry,
-          "lst": create_lst_entry}
-
+          "lst": create_lst_entry,
+          "diffsolo": create_diffsolo_entry}
+keg_folder_mapper = {"diff_align": create_diff_align_entry}
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-e', '--env', dest="env")
     parser.add_argument("-s",  nargs="+", dest="subjects")
+    parser.add_argument("-g", nargs="+", dest="groups")
     config = load_json(os.path.join(os.path.split(__file__)[0], "config.json"))
     #print(config)
     #parser.add_argument('-p',"--meteor_port", dest='meteor_port')
     #parser.add_argument("-s", "--static_port", dest="static_port")
     args = parser.parse_args()
+    if args.subjects == None:
+        args.subjects = []
+    if args.groups == None:
+        args.groups = []
     if args.env in ["development", "production"]:
         env = args.env
         if len(args.subjects) > 0:
             if args.subjects[0].endswith(".txt"):
                 import numpy as np
-                subjects = np.genfromtxt(args.subjects[0], dtype=str)
-            else:
-                subjects = args.subjects
-        for mse in subjects:
+                args.subjects = np.genfromtxt(args.subjects[0], dtype=str)
+            #else:
+            #    subjects = args.subjects
+        if len(args.groups) > 0:
+            if args.groups[0].endswith(".txt"):
+                import numpy as np
+                args.groups = np.genfromtxt(args.groups[0], dtype=str)
+            #else:
+            #    groups = args.groups
+        for mse in args.subjects:
             meteor_port = config[env]["meteor_port"]
             entries = get_all_entries(mse, outdir)
             #for i, ent in enumerate(entries):
             #    #print(i, isinstance(ent, str))
+            update_db_entries(meteor_port, entries)
+        for msid in args.groups:
+            meteor_port = config[env]["meteor_port"]
+            entries = get_all_group_entries(msid, outdir)
             update_db_entries(meteor_port, entries)
     else:
         raise Exception("Choose the database you want to append to w/ -e production or -e development")

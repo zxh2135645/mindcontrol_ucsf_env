@@ -31,6 +31,7 @@ if __name__ == '__main__':
         args.include = []
     if args.subjects == None:
         args.subjects = []
+    
     if args.env in ["development", "production"]:
         env = args.env
         if len(args.subjects) > 0:
