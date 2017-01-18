@@ -264,17 +264,22 @@ if __name__ == '__main__':
             else:
                 subjects = args.subjects
         for mse in subjects:
-            meteor_port = config[env]["meteor_port"]
             try:
-                get_all_contours(mse, meteor_port, args.entry_types)
-            except IndexError:
-                print("ANISHA NEEDS TO FIX")
+                meteor_port = config[env]["meteor_port"]
+                try:
+                    get_all_contours(mse, meteor_port, args.entry_types)
+                except IndexError:
+                    print("ANISHA NEEDS TO FIX")
 
-            get_all_seeds(mse, meteor_port, args.entry_types)
-            try:
-                get_all_paints(mse, meteor_port, args.entry_types)
-            except ValueError:
-                print("ERROR WITH PAINTING", mse)
+                get_all_seeds(mse, meteor_port, args.entry_types)
+                try:
+                    get_all_paints(mse, meteor_port, args.entry_types)
+                except ValueError:
+                    print("ERROR WITH PAINTING", mse)
+                except IndexError:
+                    print("Different type of error w/ painting")
+            except:
+                print("SOMETHING REALLY WRONG WITH", mse)
     else:
         raise Exception("Choose the database you want to append to w/ -e production or -e development")
 
