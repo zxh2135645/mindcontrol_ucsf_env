@@ -66,7 +66,8 @@ def get_points_to_paint(drawing, papaya_affine, aff, img): #, outfilepath, name,
 
                 tmp.append(to_append)
             df = df.append(pd.DataFrame(tmp), ignore_index=True)
-    df.drop_duplicates(inplace=True)
+    if df.shape[0]:
+        df.drop_duplicates(inplace=True)
 
     return df
 
