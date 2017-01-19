@@ -207,6 +207,9 @@ def get_all_seeds(mse, meteor_port, entry_types=None):
                                                                 aff, img)
                 outfilename2 = create_points_df(entry, points_nii_space2,"_origAff")
                 print("write", outfilename2)
+                saved.append(outfilename)
+                saved.append(outfilename2)
+    return saved
 
 def get_all_contours(mse, meteor_port, entry_types = None):
     coll, cli = get_collection(meteor_port+1)

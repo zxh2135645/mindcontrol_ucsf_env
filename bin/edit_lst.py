@@ -11,6 +11,8 @@ import pandas as pd
 from glob import glob
 import os
 import nibabel as nib
+import sys
+sys.path.append(os.path.split(__file__)[0])
 
 def report_stats(report):
     num_success = len([r for r in report["FP"] if r["caught"]])
@@ -190,12 +192,19 @@ def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
     return out_file, report, stats
 
 def prep(in_csv, type_of_img="ratio"):
-    name = "-".join(in_csv.split("/")[-1].split("-")[:-1])
+    name = "-".join(in_csv.split("/")[-1].split("-")[:4])
+    print("name is", name)
     mse = name.split("-")[1]
 
     lesion_file = "/data/henry7/PBR/subjects/{}/lst/lpa/" \
               "ples_lpa_m{}_index.nii.gz".format(mse, name)
     assert(os.path.exists(lesion_file))
+
+    from mc_paint import create_paint_volume
+    lesion_file_painted = create_paint_volume(5051,
+                                              {"subject_id":mse, "entry_type": "lst", "name": name},
+                                              os.path.join(os.path.split(in_csv)[0],
+                                              "{}_painted.nii.gz".format(name)))
 
     ratio_file = glob("/data/henry7/PBR/subjects/{}/{}//" \
              "{}-{}-*-{}*.nii.gz".format(mse, type_of_img, name.split("-")[0],
@@ -207,19 +216,21 @@ def prep(in_csv, type_of_img="ratio"):
            "*/BrainSegmentation.nii.gz".format(mse))
     assert(len(ants_seg))
     ants_seg = ants_seg[-1]
-    return in_csv, lesion_file, ratio_file, ants_seg
+    return in_csv, lesion_file_painted, ratio_file, ants_seg
 
-def run_edits(mse, author="ssacco", type_of_img = "ratio", dist_radius = 5):
-
+def run_edits(mse, type_of_img = "ratio", dist_radius = 5):
+    from mc_roi import get_all_seeds
     coord_system1 = "/data/henry7/PBR/subjects/{}/mindcontrol/*/lst/rois/*-{}.csv"
     coord_system2 = "/data/henry7/PBR/subjects/{}/mindcontrol/*/lst/rois/*-{}_origAff.csv"
 
-    for i,K in enumerate([coord_system1, coord_system2]):
+    f1 = get_all_seeds(mse, 5050, ["lst"])
+    for i,K in enumerate(f1):
 
         try:
-            f1 = glob(K.format(mse,author))[0]
+            #f1 = [glob(K.format(mse,author)) for author in authors]
+
             print("\n\n",mse, "coord system {}".format(K), type_of_img, dist_radius)
-            args1 = prep(f1, type_of_img)
+            args1 = prep(K, type_of_img)
             reportfile, report1, stats1 = correct_lesions(*args1, dist_radius=dist_radius)
             if reportfile is not None:
                 stats1["coord_system"] = i
