@@ -200,6 +200,11 @@ def create_lst_entry(mse, outdir):
         for i, entry in enumerate(entries):
             name = entry["name"]
             entry["check_masks"] += [relative_path(q, mse) for q in status["lga_index"] if name in q]
+            edited = "/data/henry7/PBR/subjects/{mse}/mindcontrol/{name}/lst/lst_edits/no_FP_filled_FN_dr2_{name}.nii.gz"
+            edited =edited.format(mse=mse, name=name)
+            #print(edited)
+            if os.path.exists(edited):
+                entry["check_masks"].append(relative_path(edited, mse))
         #    rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
         #    entry["check_masks"] += rois
         #print(entries)

@@ -50,6 +50,8 @@ def get_points_to_paint(drawing, papaya_affine, aff, img): #, outfilepath, name,
     df = pd.DataFrame()
     data = img.get_data()
     for d in drawing:
+        if not "paintValue" in d.keys():
+            continue
         pv = d["paintValue"]
         if len(d["world_coor"]):
             points_nii_space, trans_points = convert_to_indices(d, papaya_affine, aff, img)

@@ -127,7 +127,8 @@ def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
     df = pd.read_csv(in_csv)
     img = nib.load(lesion_file)
     data, aff = img.get_data(), img.affine
-
+    report["orig_lesion_volume"] = fslstats(lesion_file)
+    report["orig_num_lesions"] = num_lesions(data)
     # detect false positives and return if none are detected
     # probably a coordinate system error, or clicks are bad
     report, data = detect_FP(df, data, aff, report)
@@ -187,18 +188,38 @@ def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
 
     # Write the final image, save the report
     out_file = os.path.join(out_path, "no_FP_filled_FN_dr{}_".format(dist_radius)+ratio_file.split("/")[-1])
-    nib.Nifti1Image(data,aff).to_filename(out_file)
+    nib.Nifti1Image(data, aff).to_filename(out_file)
+
+    report["final_lesion_vol"] = fslstats(out_file)
+    report["final_lesion_count"] = num_lesions(data)
     save_json(report_file, report)
+    print("\n\n\n","OUTPUT:", out_file,"\n\n\n")
     return out_file, report, stats
 
+def num_lesions(data):
+    img, nlabels = label(data>0)
+    counts = np.bincount(img.ravel())
+    return len(counts[counts > 3])
+
+def fslstats(input_file):
+    from subprocess import Popen, PIPE
+    res = Popen(["fslstats", input_file,
+            "-V"], stdout=PIPE)
+    res.wait()
+    return float(res.stdout.readlines()[0].split()[-1].decode("utf-8"))
+
 def prep(in_csv, type_of_img="ratio"):
-    name = "-".join(in_csv.split("/")[-1].split("-")[:4])
-    print("name is", name)
+    parts = in_csv.split("/")[-1].split("-")
+    if len(parts[4]) == 3:
+        name = "-".join(parts[:5])
+    else:
+        name = "-".join(parts[:4])
+    #print("name is", name)
     mse = name.split("-")[1]
 
     lesion_file = "/data/henry7/PBR/subjects/{}/lst/lpa/" \
               "ples_lpa_m{}_index.nii.gz".format(mse, name)
-    assert(os.path.exists(lesion_file))
+    assert os.path.exists(lesion_file), "lesion file does not exist {}".format(lesion_file)
 
     from mc_paint import create_paint_volume
     lesion_file_painted = create_paint_volume(5051,
