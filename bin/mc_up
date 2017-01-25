@@ -9,7 +9,7 @@
 
 #%pylab inline
 from nipype.utils.filemanip import load_json, save_json
-from glob import glob 
+from glob import glob, iglob
 import os
 from os.path import join, split, exists
 from pbr.config import config as cc
@@ -182,6 +182,29 @@ def create_dura_prep_entry(mse, outdir):
         print(entries)
         return entries
 
+def report_stats(report):
+    import numpy as np
+    num_success = len([r for r in report["FP"] if r["caught"]])
+    #print("Number of False Positives Removed", num_success, "/", len(report["FP"]))
+    stats = {"FP_removed": num_success}
+
+    #print("Ratio Threshold was", report["ratio_threshold"])
+    #stats["ratio_threshold"] = report["ratio_threshold"]
+    num_success = len([r for r in report["FN"] if r["caught"]])
+    stats["FN_caught"] = num_success
+    stats["FN_tot"] = len(report["FN"])
+    stats["FP_tot"] = len(report["FP"])
+    #print("Number of False Negatives Detected", num_success, "/", len(report["FN"]))
+    error_size = [r["CM_err"] for r in report["FN"] if r["caught"]]
+    if len(error_size):
+        #print("Average CM Error:", np.sqrt(np.mean(error_size)))
+        #print("Min CM Error", np.sqrt(np.min(error_size)))
+        #print("Max CM Error", np.sqrt(np.max(error_size)))
+        stats["FN_Average_Error"] = np.sqrt(np.mean(error_size))
+        stats["FN_Min_Error"] = np.sqrt(np.min(error_size))
+        stats["FN_Max_Error"] = np.sqrt(np.max(error_size))
+
+    return stats
 
 def create_lst_entry(mse, outdir):
     status = get_status_file("lst", mse, outdir)
@@ -205,6 +228,21 @@ def create_lst_entry(mse, outdir):
             #print(edited)
             if os.path.exists(edited):
                 entry["check_masks"].append(relative_path(edited, mse))
+                report = max(iglob("/data/henry7/PBR/subjects/{mse}/mindcontrol/{name}/lst/lst_edits/report_dr2_{name}*.json".format(
+                    mse=mse,name=name
+                )), key=os.path.getctime)
+                rep = load_json(report)
+                stats = report_stats(rep)
+                print(stats)
+                if stats["FN_tot"]:
+                    entry["metrics"]["FN_score"] = stats["FN_caught"]/float(stats["FN_tot"])
+                if stats["FP_tot"]:
+                    entry["metrics"]["FP_score"] = stats["FP_removed"]/float(stats["FP_tot"])
+                entry["final_lesion_vol"] = rep["final_lesion_vol"]
+                entry["final_lesion_count"] = rep["final_lesion_count"]
+                print(entry)
+
+
         #    rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
         #    entry["check_masks"] += rois
         #print(entries)
@@ -278,8 +316,8 @@ def get_all_entries(mse, outdir):
                 if isinstance(to_add, list):
                     entries += to_add
                     status_complete.append(fol)
-            except:
-                print("SOMETHING WENT WRONG WITH", mse)
+            except Exception as e:
+                print("SOMETHING WENT WRONG WITH", mse, e)
 
     entries.append({"subject_id": mse, "entry_type": 'demographic', "status": status_complete})
     return entries

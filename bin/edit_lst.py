@@ -86,10 +86,16 @@ def find_FN(ratio, indices, fn, dist_radius=5):
         i,j,k = ijk
         r = dist_radius
         sq = ratio[i-r:i+r, j-r:j+r, k-r:k+r]
-        m, s, val = np.mean(sq), np.std(sq), ratio[i,j,k]
+        #print("ratio shape", ratio.shape, "ijk", ijk)
+        if i>=ratio.shape[0] or j>=ratio.shape[1] or k>=ratio.shape[2]:
+            entry["errType"] = "out of bounds"
+            val = 0
+        else:
+            m, s, val = np.mean(sq), np.std(sq), ratio[i,j,k]
 
         #the thresholded ratio image is 0 here. User has clicked CSF.
         if not val:
+            #print("click outside brain???")
             entry["errType"] = "click not in mask"
 
         else:
@@ -135,6 +141,8 @@ def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
     num_success = len([r for r in report["FP"] if r["caught"]])
     # coordinate system error ??
     if len(report["FP"]) and not num_success:
+        print("Coordinate system error? or can't find any FP -- is this labelled correctly?",
+              len(report["FP"]), num_success)
         return None, None, None
 
     # Write the lesion file w/ the false positives removed.
@@ -153,15 +161,16 @@ def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
     def chopper(in_file, ratio_file):
         import tempfile
         from subprocess import check_call
-        out_file = tempfile.mktemp(suffix=".nii.gz")
-        cmd = "mri_convert -i {} -o {} --like {}".format(in_file, out_file, ratio_file)
-        check_call(cmd.split(" "))
+        out_file = os.path.join(os.path.split(in_csv)[0], "antsSeg.nii.gz") #tempfile.mktemp(suffix=".nii.gz")
+        if not os.path.exists(out_file):
+            cmd = "mri_convert -i {} -o {} --like {}".format(in_file, out_file, ratio_file)
+            check_call(cmd.split(" "))
         return out_file
 
     ants_chopped = chopper(ants_seg, ratio_file) #gets shit to alignment space
     ants_img = nib.load(ants_chopped)
     ants_data = ants_img.get_data()
-    wm_mask = ants_data >= 2 #exclude CSF
+    wm_mask = ants_data >= 1 #do not ?? exclude CSF
     ratio[wm_mask ==0] = 0
 
     # Prepare false negatives and find them
@@ -184,6 +193,8 @@ def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
         print("success score", num_success/float(total) )
         if num_success/float(total) < 0.4:
             print("notgood enough")
+            if os.path.exists(report_file):
+                os.remove(report_file) #this is an old report file. remove it
             return None, None, None
 
     # Write the final image, save the report
@@ -208,13 +219,13 @@ def fslstats(input_file):
     res.wait()
     return float(res.stdout.readlines()[0].split()[-1].decode("utf-8"))
 
-def prep(in_csv, type_of_img="ratio"):
+def prep(in_csv, type_of_img="alignment"):
     parts = in_csv.split("/")[-1].split("-")
     if len(parts[4]) == 3:
         name = "-".join(parts[:5])
     else:
         name = "-".join(parts[:4])
-    #print("name is", name)
+    print("name is", name)
     mse = name.split("-")[1]
 
     lesion_file = "/data/henry7/PBR/subjects/{}/lst/lpa/" \
@@ -227,15 +238,14 @@ def prep(in_csv, type_of_img="ratio"):
                                               os.path.join(os.path.split(in_csv)[0],
                                               "{}_painted.nii.gz".format(name)))
 
-    ratio_file = glob("/data/henry7/PBR/subjects/{}/{}//" \
-             "{}-{}-*-{}*.nii.gz".format(mse, type_of_img, name.split("-")[0],
-                                     name.split("-")[1], name.split("-")[-1]))
-    assert(len(ratio_file) == 1)
-    ratio_file = ratio_file[0]
+    ratio_file = "/data/henry7/PBR/subjects/{mse}/{type}/{name}.nii.gz".format(mse=mse, type=type_of_img, name=name)
+    assert os.path.exists(ratio_file), "{} file does not exist {}".format(type_of_img, ratio_file)
+    #ratio_file = ratio_file[0]
 
     ants_seg = glob("/data/henry7/PBR/subjects/{}/antsCT/" \
            "*/BrainSegmentation.nii.gz".format(mse))
-    assert(len(ants_seg))
+    assert len(ants_seg), "ants does not exist /data/henry7/PBR/subjects/{}/antsCT/" \
+           "*/BrainSegmentation.nii.gz".format(mse)
     ants_seg = ants_seg[-1]
     return in_csv, lesion_file_painted, ratio_file, ants_seg
 
@@ -247,7 +257,7 @@ def run_edits(mse, type_of_img = "ratio", dist_radius = 5):
     f1 = get_all_seeds(mse, 5050, ["lst"])
     for i,K in enumerate(f1):
 
-        try:
+        #try:
             #f1 = [glob(K.format(mse,author)) for author in authors]
 
             print("\n\n",mse, "coord system {}".format(K), type_of_img, dist_radius)
@@ -258,8 +268,9 @@ def run_edits(mse, type_of_img = "ratio", dist_radius = 5):
                 stats1["exam_id"] = mse
                 return stats1, report1
 
-        except IndexError:
-            return
+        #except IndexError:
+        #    print("THERE IS AN INDEX ERROR", K)
+        #    return
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ def get_papaya_aff(img):
     ort = nib.orientations.io_orientation(aff)
     papaya_aff = np.zeros((4, 4))
     for i, line in enumerate(ort):
-        papaya_aff[line[0],i] = vs[i]*line[1]
+        papaya_aff[int(line[0]),i] = vs[i]*line[1]
     papaya_aff[:, 3] = aff[:, 3]
     return papaya_aff
     
