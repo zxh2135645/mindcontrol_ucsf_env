@@ -1,440 +1,306 @@
 #!/usr/bin/env python
-# coding: utf-8
+__author__ = 'akeshavan'
 
-# # Mindboggle Outputs to Mindcontrol
-
-# gist_to: https://gist.github.com/156e9d479d1f72e7656463843af8fd6d
-
-# In[71]:
-
-#%pylab inline
-from nipype.utils.filemanip import load_json, save_json
-from glob import glob, iglob
-import os
-from os.path import join, split, exists
-from pbr.config import config as cc
-import pandas as pd
+import numpy as np
+from dipy.tracking import utils
+from scipy.ndimage import label
+import sys
 from copy import deepcopy
-import argparse
-
-
-# ## Functions
-
-# In[3]:
-
-def get_status_file(pipeline, mse, outdir):
-    folder = join(outdir, mse, pipeline, "status.json")
-    if not exists(folder):
-        #print("file not found", mse)
-        return None
-    try:
-        status = load_json(folder)
-    except:
-        print("error with status {} {}".format(pipeline, mse))
-        return None
-
-
-    return status
-
-
-# In[4]:
-
-def get_name_from_mindboggle_output(fname):
-    return fname.split("/")[-3]
-
-
-# In[5]:
-
-def get_t1(name,mse, outdir):
-    nii_file = join(outdir, mse, "nii",name+".nii.gz")
-    if exists(nii_file):
-        return nii_file
-    else:
-        raise Exception("ERROR: file not found", mse)
-
-
-# In[6]:
-
-def relative_path(x, mse):
-    foo = x.split("/"+mse+"/")[-1]
-    return join(mse, foo)
-
-
-def get_rois(mse, entry_type, name, outdir):
-    from os.path import join
-    from glob import glob
-    mindcontrol_dir = join(outdir, mse, "mindcontrol", name, entry_type,"rois")
-    rois = [relative_path(q, mse) for q in glob(join(mindcontrol_dir, "*.nii.gz"))]
-    print(join(mindcontrol_dir, "*.nii.gz"))
-    
-    return rois
-
-
-# In[38]:
-
-def create_mindboggle_entry(mse, outdir):
-    status = get_status_file("mindboggle", mse, outdir)
-    if status is not None:
-        entries = []
-        init = {"subject_id": mse}
-        fs = status["hybrid_segmentation_fs"]
-        ants = status["hybrid_segmentation_ants"]
-        name = [get_name_from_mindboggle_output(f) for f in fs]
-        for i, n in enumerate(name):
-            entry = deepcopy(init)
-            entry["name"] = n
-            entry["check_masks"] = [relative_path(get_t1(n, mse, outdir), mse),
-                                    relative_path(fs[i], mse),
-                                    relative_path(ants[i], mse)]
-            entry["surfaces"] = [{"name": n,
-                                  "vtk": relative_path(status["{}_freesurfer_curvature".format(n)][i], mse),
-                                  "csv": relative_path(status["{}_vertices".format(n)][i], mse)}
-                                 for n in ["left", "right"]]
-            entry["metrics"] = status["metrics"][i]
-            entry["entry_type"] = "mindboggle"
-            rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
-            entry["check_masks"] += rois
-            entries.append(entry)
-        return entries
-
-
-# In[9]:
-
-def create_alignment_entry(mse, outdir):
-    status = get_status_file("alignment", mse, outdir)
-    if status is not None:
-        if "t1_files" in list(status.keys()):
-            paths = [relative_path(s, mse) for s in status["t1_files"]]
-            paths += [relative_path(s, mse) for s in status["t2_files"]]
-            paths += [relative_path(s, mse) for s in status["flair_files"]]
-            paths += [relative_path(s, mse) for s in status["gad_files"]]
-            entry = {}
-            entry["subject_id"] = mse
-            entry["check_masks"] = paths
-            entry["name"] = paths[0].split("/")[-1].split(".nii.gz")[0]
-            entry["entry_type"] = "align"
-            rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
-            entry["check_masks"] += rois
-            return [entry]
-
-
-# In[63]:
-
-def create_nifti_entry(mse, outdir):
-    #TODO: add metrics for nifti via pulse sequense params
-    status = get_status_file("nii", mse, outdir)
-    if status is not None:
-        entries = [{"check_masks": [relative_path(x, mse)],
-                    "name": os.path.split(x)[-1].split(".nii.gz")[0],
-                    "entry_type":"nifti",
-                    "subject_id": mse} for x in status["nifti_files"]]
-        return entries
-
-
-# In[36]:
-
-def create_antsCT_entry(mse, outdir):
-    status = get_status_file("antsCT", mse, outdir)
-    if status is not None:
-        t1_names = [q.split("/")[-2] for q in status["BrainSegmentation"]]
-        t1_files = [os.path.join(q.split("antsCT")[0],"nii", t1_names[i]+".nii.gz")
-                    for i,q in enumerate(status["BrainSegmentation"])]
-        if "metrics" in list(status.keys()):
-            entries = [{"check_masks": [relative_path(t1_files[i], mse),
-                                   relative_path(q, mse)],
-                   "name": t1_names[i],
-                    'entry_type': "antsCT",
-                        "subject_id": mse,
-                   "metrics": status["metrics"][i]} for i, q in enumerate(status["BrainSegmentation"])]
-            return entries
-
-
-# In[30]:
-
-def create_freesurfer_entry(mse, outdir):
-    status = get_status_file("masks", mse, outdir)
-    if status is not None:
-        t1_names = [q.split("/")[-2] for q in status["aparc"]]
-        t1_files = [q for i,q in enumerate(status["orig"])]
-        if "metrics" in list(status.keys()):
-            entries = [{"check_masks": [relative_path(t1_files[i], mse),
-                                        relative_path(q, mse)],
-                       "name": t1_names[i],
-                       'entry_type': "freesurfer",
-                        "subject_id": mse,
-                       "metrics": status["metrics"][i]} for i, q in enumerate(status["aparc"])]
-            return entries
-
-
-def create_dura_prep_entry(mse, outdir):
-    status = get_status_file("dura", mse, outdir)
-    if status is not None:
-        t1_names = [q.split("/")[-2] for q in status["reoriented_t1s"]]
-        print("t1 names is", t1_names)
-        entries = [{"check_masks": [relative_path(q, mse),
-                                    relative_path(status["brain_mask"][i], mse)],
-                       "name": t1_names[i],
-                       'entry_type': "dura",
-                        "subject_id": mse} for i, q in enumerate(status["reoriented_t1s"])]
-        for entry in entries:
-            rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
-            entry["check_masks"] += rois
-        print(entries)
-        return entries
+from nipype.utils.filemanip import save_json, fname_presuffix
+import pandas as pd
+from glob import glob
+import os
+import nibabel as nib
+import sys
+sys.path.append(os.path.split(__file__)[0])
 
 def report_stats(report):
-    import numpy as np
     num_success = len([r for r in report["FP"] if r["caught"]])
-    #print("Number of False Positives Removed", num_success, "/", len(report["FP"]))
+    print("Number of False Positives Removed", num_success, "/", len(report["FP"]))
     stats = {"FP_removed": num_success}
-
     #print("Ratio Threshold was", report["ratio_threshold"])
     #stats["ratio_threshold"] = report["ratio_threshold"]
     num_success = len([r for r in report["FN"] if r["caught"]])
     stats["FN_caught"] = num_success
-    stats["FN_tot"] = len(report["FN"])
-    stats["FP_tot"] = len(report["FP"])
-    #print("Number of False Negatives Detected", num_success, "/", len(report["FN"]))
+    print("Number of False Negatives Detected", num_success, "/", len(report["FN"]))
     error_size = [r["CM_err"] for r in report["FN"] if r["caught"]]
     if len(error_size):
-        #print("Average CM Error:", np.sqrt(np.mean(error_size)))
-        #print("Min CM Error", np.sqrt(np.min(error_size)))
-        #print("Max CM Error", np.sqrt(np.max(error_size)))
+        print("Average CM Error:", np.sqrt(np.mean(error_size)))
+        print("Min CM Error", np.sqrt(np.min(error_size)))
+        print("Max CM Error", np.sqrt(np.max(error_size)))
         stats["FN_Average_Error"] = np.sqrt(np.mean(error_size))
         stats["FN_Min_Error"] = np.sqrt(np.min(error_size))
         stats["FN_Max_Error"] = np.sqrt(np.max(error_size))
-
     return stats
 
-def create_lst_entry(mse, outdir):
-    status = get_status_file("lst", mse, outdir)
-    if status is not None:
-        t1_names = [q.split("/")[-1].split("ples_lpa_m")[-1].split("_index.nii")[0] for q in status["lpa_index"]]
-        print("t1 names is", t1_names)
-        nii_path = os.path.join(mse,"alignment")
-        entries = [{"check_masks": [os.path.join(nii_path, t1_names[i]+".nii.gz"),
-                                    relative_path(q, mse)
-                                    ],
-                       "name": t1_names[i],
-                       'entry_type': "lst",
-                       "metrics": status["lpa_metrics"][i],
-                        "subject_id": mse} for i, q in enumerate(status["lpa_index"])]
-        
-        for i, entry in enumerate(entries):
-            name = entry["name"]
-            entry["check_masks"] += [relative_path(q, mse) for q in status["lga_index"] if name in q]
-            edited = "/data/henry7/PBR/subjects/{mse}/mindcontrol/{name}/lst/lst_edits/no_FP_filled_FN_dr2_{name}.nii.gz"
-            edited =edited.format(mse=mse, name=name)
-            #print(edited)
-            if os.path.exists(edited):
-                entry["check_masks"].append(relative_path(edited, mse))
-                report = max(iglob("/data/henry7/PBR/subjects/{mse}/mindcontrol/{name}/lst/lst_edits/report_dr2_{name}*.json".format(
-                    mse=mse,name=name
-                )), key=os.path.getctime)
-                rep = load_json(report)
-                stats = report_stats(rep)
-                print(stats)
-                if stats["FN_tot"]:
-                    entry["metrics"]["FN_score"] = stats["FN_caught"]/float(stats["FN_tot"])
-                if stats["FP_tot"]:
-                    entry["metrics"]["FP_score"] = stats["FP_removed"]/float(stats["FP_tot"])
-                entry["final_lesion_vol"] = rep["final_lesion_vol"]
-                entry["final_lesion_count"] = rep["final_lesion_count"]
-                print(entry)
+def detect_FP(df, data, aff, report):
+    fp = df[df.annotation=="FP"][["x", "y", "z"]].values
+    to_indices = np.round(np.asarray(list(utils.move_streamlines(fp.tolist(), np.linalg.inv(aff))))).astype(int)
+    print("What is to_indices: ", to_indices)
+    for j,idx in enumerate(to_indices):
+        entry = {}
+        val = data[idx[0],idx[1], idx[2]]
+        entry["world"] = fp.tolist()[j]
+        entry["ijk"] = idx.tolist()
+        entry["caught"] = False
+        if val:
+            entry["caught"] = True
+            entry["size"] = float(np.sum(data==val))
+            data[data==val] = 0
 
+        else:
+            searchR = 1
 
-        #    rois = get_rois(mse, entry["entry_type"], entry["name"], outdir)
-        #    entry["check_masks"] += rois
-        #print(entries)
-        
-        return entries
+            for i in range(3):
+                new_idx = deepcopy(idx)
+                new_idx[i] += searchR
+                #print("trying", new_idx)
+                val = data[new_idx[0],new_idx[1], new_idx[2]]
+                if val != 0:
+                    break
+                new_idx = deepcopy(idx)
+                new_idx[i] -= searchR
+                val = data[new_idx[0],new_idx[1], new_idx[2]]
+                if val != 0:
+                    break
+            if val == 0:
+                #print("ERROR, no lesion here!!!", idx) #TODO: draw a 2 vox box around this coordinate and look for val
+                pass
+            else:
+                #print("FOUND VALS AROUND POINT", new_idx)
+                entry["ijk"] = new_idx.tolist()
+                entry["caught"] = True
+                entry["size"] = float(np.sum(data==val))
+                data[data==val] = 0
+        report["FP"].append(entry)
+    return report, data
 
+def find_FN(ratio, indices, fn, dist_radius=5):
+    entries = []
+    false_neg_mask = np.zeros(ratio.shape)
+    for idx, ijk in enumerate(indices):
+        entry = {}
+        entry["world"] = fn.tolist()[idx]
+        entry["ijk"] = ijk.tolist()
+        entry["caught"] = False
+        i,j,k = ijk
+        r = dist_radius
+        sq = ratio[i-r:i+r, j-r:j+r, k-r:k+r]
+        #print("ratio shape", ratio.shape, "ijk", ijk)
+        if i>=ratio.shape[0] or j>=ratio.shape[1] or k>=ratio.shape[2]:
+            entry["errType"] = "out of bounds"
+            val = 0
+        else:
+            m, s, val = np.mean(sq), np.std(sq), ratio[i,j,k]
 
-def create_diffsolo_entry(mse, outdir):
-    status = get_status_file("diffsolo", mse, outdir)
-    if status is not None:
-        t1_names = [q.split("/")[-2] for q in status["fa"]]
+        #the thresholded ratio image is 0 here. User has clicked CSF.
+        if not val:
+            #print("click outside brain???")
+            entry["errType"] = "click not in mask"
 
-        entries = [{"check_masks": [relative_path(q, mse),
-                                    relative_path(status["apm"][i], mse)],
-                       "name": t1_names[i],
-                       'entry_type': "diffsolo",
-                       #"metrics": status["lpa_metrics"][i],
-                        "subject_id": mse} for i, q in enumerate(status["fa"])]
+        else:
+            stddev_steps = np.linspace(0.5,(val-m)/s, 20)
+            thrs = [m+t*s for t in stddev_steps]
+            entry["errType"] = "no peaks near click"
+            for threshold in thrs:
+                label_img, nlabels = label(ratio >= threshold)
+                label_idx = label_img[i,j,k]
+                mask = label_img==label_idx
+                indices = np.nonzero(mask)
+                cm = np.asarray([np.mean(z) for z in indices])
+                cmErr = np.linalg.norm(cm - np.asarray(ijk))
+                count = np.sum(mask)
 
-        return entries
+                #Center of mass should be close to clicked point and the blob shouldn't be too big
+                if count < 1000 and cmErr < 3:
+                    entry["caught"] = True
+                    entry["size"] = float(count)
+                    entry["CM"] = cm.tolist()
+                    entry["CM_err"] = float(cmErr)
+                    entry["local_threshold"] = threshold
+                    entry["errType"] = ""
+                    false_neg_mask[indices] = 1
 
+                    break
+        entries.append(entry)
+    return entries, false_neg_mask
 
-def get_mindboggle_info(mse, outdir, all_entries):
-    status = get_status_file("mindboggle", mse, outdir)
-    if status is not None:
-        entries = create_mindboggle_entry(status, mse, outdir) #is a list
-        all_entries += entries
+def correct_lesions(in_csv, lesion_file, ratio_file, ants_seg, dist_radius=5):
 
+    # Initialize report, load csv data and lesion seg data
+    report = dict(FP=[], FN=[], base_csv=in_csv,
+                  ratio_file=ratio_file, dist_radius=dist_radius)
+    df = pd.read_csv(in_csv)
+    img = nib.load(lesion_file)
+    data, aff = img.get_data(), img.affine
+    report["orig_lesion_volume"] = fslstats(lesion_file)
+    report["orig_num_lesions"] = num_lesions(data)
+    # detect false positives and return if none are detected
+    # probably a coordinate system error, or clicks are bad
+    report, data = detect_FP(df, data, aff, report)
+    num_success = len([r for r in report["FP"] if r["caught"]])
+    # coordinate system error ??
+    if len(report["FP"]) and not num_success:
+        print("Coordinate system error? or can't find any FP -- is this labelled correctly?",
+              len(report["FP"]), num_success)
+        return None, None, None
 
-# In[43]:
+    # Write the lesion file w/ the false positives removed.
+    out_path = os.path.join(os.path.split(os.path.split(in_csv)[0])[0], "lst_edits")
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+    out_file = os.path.join(out_path, "no_FP_"+lesion_file.split("/")[-1])
+    nib.Nifti1Image(data,aff).to_filename(out_file)
 
-def get_collection(port=3001):
-    from pymongo import MongoClient
-    client = MongoClient("localhost", port)
-    db =  client.meteor
-    collection = db.subjects
-    return collection, client
+    # Load the ratio image
+    ratio_img = nib.load(ratio_file)
+    ratio, raffine = ratio_img.get_data(), ratio_img.affine
 
+    # Get the tissue segmentation in the same space as the ratio file
+    # Mask to exclude CSF
+    def chopper(in_file, ratio_file):
+        import tempfile
+        from subprocess import check_call
+        out_file = os.path.join(os.path.split(in_csv)[0], "antsSeg.nii.gz") #tempfile.mktemp(suffix=".nii.gz")
+        if not os.path.exists(out_file):
+            cmd = "mri_convert -i {} -o {} --like {}".format(in_file, out_file, ratio_file)
+            check_call(cmd.split(" "))
+        return out_file
 
-# In[47]:
+    ants_chopped = chopper(ants_seg, ratio_file) #gets shit to alignment space
+    ants_img = nib.load(ants_chopped)
+    ants_data = ants_img.get_data()
+    wm_mask = ants_data >= 1 #do not ?? exclude CSF
+    ratio[wm_mask ==0] = 0
 
-def update_db(meteor_port, entry):
-    coll, _ = get_collection(meteor_port + 1)
-    finder = {"subject_id": entry["subject_id"], 
-              "entry_type": entry["entry_type"]}
-    if "name" in entry.keys():
-        finder["name"] = entry["name"]
-        
-    if coll.find_one(finder):    
-        coll.update_one(finder, {"$set": entry})
+    # Prepare false negatives and find them
+    fn = df[df.annotation=="FN"][["x", "y", "z"]].values
+    to_indices = np.round(np.asarray(list(utils.move_streamlines(fn.tolist(), np.linalg.inv(aff))))).astype(int)
+    entries, fn_image = find_FN(ratio, to_indices, fn, dist_radius)
+    print(ratio.shape, data.shape)
+    report["FN"] += entries
+    data = data + fn_image #add the found false neggies to data
+
+    # Score the false negatives, reject if less than 40% are found
+    report_file = fname_presuffix(in_csv, prefix="report_dr{}_".format(dist_radius),
+                                  newpath=out_path,
+                                  use_ext=False,
+                                  suffix="_{}.json".format(os.path.split(ratio_file)[-1])) #long name for prov.
+    stats = report_stats(report)
+    num_success = len([r for r in report["FN"] if r["caught"]])
+    total = len(report["FN"])
+    if float(total) > 0:
+        print("success score", num_success/float(total) )
+        if num_success/float(total) < 0.4:
+            print("notgood enough")
+            if os.path.exists(report_file):
+                os.remove(report_file) #this is an old report file. remove it
+            return None, None, None
+
+    # Write the final image, save the report
+    out_file = os.path.join(out_path, "no_FP_filled_FN_dr{}_".format(dist_radius)+ratio_file.split("/")[-1])
+    nib.Nifti1Image(data, aff).to_filename(out_file)
+
+    report["final_lesion_vol"] = fslstats(out_file)
+    report["final_lesion_count"] = num_lesions(data)
+    save_json(report_file, report)
+    print("\n\n\n","OUTPUT:", out_file,"\n\n\n")
+    return out_file, report, stats
+
+def num_lesions(data):
+    img, nlabels = label(data>0)
+    counts = np.bincount(img.ravel())
+    return len(counts[counts > 3])
+
+def fslstats(input_file):
+    from subprocess import Popen, PIPE
+    res = Popen(["fslstats", input_file,
+            "-V"], stdout=PIPE)
+    res.wait()
+    return float(res.stdout.readlines()[0].split()[-1].decode("utf-8"))
+
+def prep(in_csv, type_of_img="alignment", entry_type="lst"):
+    parts = in_csv.split("/")[-1].split("-")
+    if len(parts[4]) == 3:
+        name = "-".join(parts[:5])
     else:
-        coll.insert_one(entry)
+        name = "-".join(parts[:4])
+    print("name is", name)
+    mse = name.split("-")[1]
+
+    lesion_file = "/data/henry7/PBR/subjects/{}/lst/lpa/" \
+              "ples_lpa_m{}_index.nii.gz".format(mse, name)
+    assert os.path.exists(lesion_file), "lesion file does not exist {}".format(lesion_file)
+
+    from mc_paint import create_paint_volume
+    lesion_file_painted = create_paint_volume(5051,
+                                              {"subject_id":mse, "entry_type": entry_type, "name": name},
+                                              os.path.join(os.path.split(in_csv)[0],
+                                              "{}_painted.nii.gz".format(name)))
+
+    ratio_file = "/data/henry7/PBR/subjects/{mse}/{type}/{name}.nii.gz".format(mse=mse, type=type_of_img, name=name)
+    assert os.path.exists(ratio_file), "{} file does not exist {}".format(type_of_img, ratio_file)
+    #ratio_file = ratio_file[0]
+
+    ants_seg = glob("/data/henry7/PBR/subjects/{}/antsCT/" \
+           "*/BrainSegmentation.nii.gz".format(mse))
+    assert len(ants_seg), "ants does not exist /data/henry7/PBR/subjects/{}/antsCT/" \
+           "*/BrainSegmentation.nii.gz".format(mse)
+    ants_seg = ants_seg[-1]
+    return in_csv, lesion_file_painted, ratio_file, ants_seg
+
+def run_edits(mse, type_of_img = "ratio", dist_radius = 5, entry_type="lst"):
+    from mc_roi import get_all_seeds
+    coord_system1 = "/data/henry7/PBR/subjects/{}/mindcontrol/*/lst/rois/*-{}.csv"
+    coord_system2 = "/data/henry7/PBR/subjects/{}/mindcontrol/*/lst/rois/*-{}_origAff.csv"
+    if type(entry_type) is str:
+        entry_type = [entry_type]
+    print("entry_type is: ", entry_type)
+    f1 = get_all_seeds(mse, 5050, entry_type)
+    entry_type = ''.join(entry_type)
+    print("Are you running?")
+    print("So what is f1?", f1)
+
+    if len(f1) != 0 and f1[0] is 'checked':
+        print("This is chekced but no editting was added.")
+    else:
+        for i,K in enumerate(f1):
+
+            #try:
+                #f1 = [glob(K.format(mse,author)) for author in authors]
+
+                print("\n\n",mse, "coord system {}".format(K), type_of_img, dist_radius)
+                args1 = prep(K, type_of_img, entry_type)
+                print("Looks there is some issues with args1, ",args1)
+                reportfile, report1, stats1 = correct_lesions(*args1, dist_radius=dist_radius)
+                if reportfile is not None:
+                    stats1["coord_system"] = i
+                    stats1["exam_id"] = mse
+                    return stats1, report1
+
+            #except IndexError:
+            #    print("THERE IS AN INDEX ERROR", K)
+            #    return
 
 
-# In[68]:
-
-def get_all_entries(mse, outdir):
-    """
-    Note: This doesn't update demographics, only PBR outputs
-    """
-    folders = [split(q)[1] for q in glob(join(outdir, mse, "*"))]
-    print(folders)
-    entries = []
-    status_complete = []
-    for fol in folders:
-        if fol in pbr_folder_mapper.keys():
-            func= pbr_folder_mapper[fol]
-            try:
-                to_add = func(mse, outdir)
-            
-                if isinstance(to_add, list):
-                    entries += to_add
-                    status_complete.append(fol)
-            except Exception as e:
-                print("SOMETHING WENT WRONG WITH", mse, e)
-
-    entries.append({"subject_id": mse, "entry_type": 'demographic', "status": status_complete})
-    return entries
-
-def get_all_group_entries(msid, outdir):
-    """
-    Note: This doesn't update demographics, only PBR outputs
-    """
-    folders = [split(q)[1] for q in glob(join(outdir, msid, "*"))]
-    print(folders)
-    entries = []
-    status_complete = []
-    for fol in folders:
-        if fol in keg_folder_mapper.keys():
-            func= keg_folder_mapper[fol]
-            try:
-                to_add = func(msid, outdir)
-
-                if isinstance(to_add, list):
-                    entries += to_add
-                    status_complete.append(fol)
-            except:
-                print("SOMETHING WENT WRONG WITH", msid)
-
-    #entries.append({"msid": msid, "entry_type": 'demographic', "status": status_complete})
-
-    return entries
+if __name__ == "__main__":
+    import argparse
+    # if len(sys.argv) < 1:
+    #     raise Exception("USAGE: edit_lst.py [-e <entry_type>] <list of mse>")
 
 
-def create_diff_align_entry(msid, outdir):
-    status = get_status_file("diff_align", msid, outdir)
-    if status is not None:
-        get_mse = lambda x: x.split("/")[-1].split("-")[1]
-        imgs = status["post_APM"] + status["thrP_sub_tfce_APM"] +status["pre_APM"]\
-                +status["thrP_sub_tfce_B0"] + status["thrP_sub_tfce_MD"] \
-               + status["sub_tfce_MD"] + status["sub_tfce_B0"]
-        entry = {"msid": msid,
-                 "subject_id": status["mseIDs"][1],
-                 "entry_type": "diff_long",
-                 "check_masks": [relative_path(x,msid) for x in imgs],
-                 "name": "{}_{}".format(*status["mseIDs"])}
-        print(entry)
-        return [entry]
-
-
-# In[57]:
-
-def update_db_entries(meteor_port, entries):
-    return [update_db(meteor_port, entry) for entry in entries]
-
-
-# #### TODO: Talk to MSPacman for demographic info (dates)
-
-# In[8]:
-
-def create_demographic_entry(mse, msid, demographics, study_tag):
-    entry = {}
-    entry["subject_id"] = mse
-    entry["msid"] = msid
-    entry["entry_type"] = "demographic"
-    entry["Study Tag"] = study_tag
-    entry["metrics"] = {}
-    entry['metrics']["DCM_StudyDate"] = int(demographics[demographics.mse==mse].date.values[0])
-    return entry
-
-
-
-outdir = cc["output_directory"]
-pbr_folder_mapper = {
-          "nii": create_nifti_entry, 
-          "masks": create_freesurfer_entry, 
-          "antsCT": create_antsCT_entry,
-          "mindboggle": create_mindboggle_entry,
-          "alignment": create_alignment_entry,
-          "dura": create_dura_prep_entry,
-          "lst": create_lst_entry,
-          "diffsolo": create_diffsolo_entry}
-keg_folder_mapper = {"diff_align": create_diff_align_entry}
-
-if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-e', '--env', dest="env")
-    parser.add_argument("-s",  nargs="+", dest="subjects")
-    parser.add_argument("-g", nargs="+", dest="groups")
-    config = load_json(os.path.join(os.path.split(__file__)[0], "config.json"))
-    #print(config)
-    #parser.add_argument('-p',"--meteor_port", dest='meteor_port')
-    #parser.add_argument("-s", "--static_port", dest="static_port")
+    parser.add_argument('-e', '--entry', nargs=1, dest="entry_type", default=["lst"])
+    parser.add_argument('subjects', nargs="+")
     args = parser.parse_args()
-    if args.subjects == None:
-        args.subjects = []
-    if args.groups == None:
-        args.groups = []
-    if args.env in ["development", "production"]:
-        env = args.env
-        if len(args.subjects) > 0:
-            if args.subjects[0].endswith(".txt"):
-                import numpy as np
-                args.subjects = np.genfromtxt(args.subjects[0], dtype=str)
-            #else:
-            #    subjects = args.subjects
-        if len(args.groups) > 0:
-            if args.groups[0].endswith(".txt"):
-                import numpy as np
-                args.groups = np.genfromtxt(args.groups[0], dtype=str)
-            #else:
-            #    groups = args.groups
-        for mse in args.subjects:
-            meteor_port = config[env]["meteor_port"]
-            entries = get_all_entries(mse, outdir)
-            #for i, ent in enumerate(entries):
-            #    #print(i, isinstance(ent, str))
-            update_db_entries(meteor_port, entries)
-        for msid in args.groups:
-            meteor_port = config[env]["meteor_port"]
-            entries = get_all_group_entries(msid, outdir)
-            update_db_entries(meteor_port, entries)
-    else:
-        raise Exception("Choose the database you want to append to w/ -e production or -e development")
 
+    mse = args.subjects
+    entry = args.entry_type
+    print(mse, entry)
+    file_types = ["alignment"]
+    dist_radii = [2]
+    for m in mse:
+        try:
+            [run_edits(m,type_of_img=f, dist_radius=dr, entry_type=entry) for f in file_types for dr in dist_radii]
+        except Exception as e:
+            print("\n\n\n\n", "SOMETHING WENT WRONG WITH", m,e, "\n\n\n\n")
